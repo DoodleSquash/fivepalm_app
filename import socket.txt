@@ -1,0 +1,10 @@
+import socket
+
+HOST = '127.0.0.1'  # or your server's IP
+PORT = 4509
+
+data = '{"mac_address":"AA:BB:CC:DD:EE:FF","call_status":1,"battery":"good","table_no":29}'
+
+with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+    s.connect((HOST, PORT))
+    s.sendall(data.encode())
