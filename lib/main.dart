@@ -15,6 +15,8 @@ void main() {
 }
 
 class TcpClientPage extends StatefulWidget {
+  const TcpClientPage({super.key});
+
   @override
   _TcpClientPageState createState() => _TcpClientPageState();
 }
