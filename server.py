@@ -20,7 +20,7 @@ def handle_client(client_socket, client_address):
     with client_socket:
         with clients_lock:
             clients.append(client_socket)
-        try:
+        try: 
             while True:
                 data = client_socket.recv(1024).decode()
                 if not data:

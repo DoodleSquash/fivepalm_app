@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:permission_handler/permission_handler.dart';
 
@@ -15,14 +16,6 @@ void main() {
   );
 }
 
-class TcpClientPage extends StatefulWidget {
-  const TcpClientPage({super.key});
-
-  @override
-  _TcpClientPageState createState() => _TcpClientPageState();
-}
-
-
 class Message {
   final int tableNo;
   final DateTime receivedAt;
@@ -33,9 +26,17 @@ int _findMessageIndex(List<Message> messages, int tableNo) {
   return messages.indexWhere((msg) => msg.tableNo == tableNo);
 }
 
+class TcpClientPage extends StatefulWidget {
+  const TcpClientPage({super.key});
+
+  @override
+  _TcpClientPageState createState() => _TcpClientPageState();
+}
+
 class _TcpClientPageState extends State<TcpClientPage> {
   final ipController = TextEditingController();
   final portController = TextEditingController();
+  TabController? _tabController;
 
   Socket? socket;
   bool isConnected = false;
@@ -50,6 +51,19 @@ class _TcpClientPageState extends State<TcpClientPage> {
     super.initState();
     _initNotifications();
     _requestNotificationPermission();
+    _loadLastUsedConfig();
+  }
+
+  Future<void> _loadLastUsedConfig() async {
+    final prefs = await SharedPreferences.getInstance();
+    ipController.text = prefs.getString('last_ip') ?? '';
+    portController.text = prefs.getString('last_port') ?? '';
+  }
+
+  Future<void> _saveLastUsedConfig(String ip, String port) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('last_ip', ip);
+    await prefs.setString('last_port', port);
   }
 
   Future<void> _requestNotificationPermission() async {
@@ -72,13 +86,13 @@ class _TcpClientPageState extends State<TcpClientPage> {
     try {
       const AndroidNotificationDetails androidPlatformChannelSpecifics =
           AndroidNotificationDetails(
-            'server_channel',
-            'Server Messages',
-            channelDescription: 'Channel for server messages',
-            importance: Importance.max,
-            priority: Priority.high,
-            ticker: 'ticker',
-          );
+        'server_channel',
+        'Server Messages',
+        channelDescription: 'Channel for server messages',
+        importance: Importance.max,
+        priority: Priority.high,
+        ticker: 'ticker',
+      );
       const NotificationDetails platformChannelSpecifics = NotificationDetails(
         android: androidPlatformChannelSpecifics,
       );
@@ -99,10 +113,15 @@ class _TcpClientPageState extends State<TcpClientPage> {
     final ip = ipController.text.trim();
     final port = int.tryParse(portController.text.trim()) ?? 0;
 
+    await _saveLastUsedConfig(ip, portController.text.trim());
+
     try {
       socket = await Socket.connect(ip, port);
       setState(() => isConnected = true);
       print('✅ Connected to $ip:$port');
+
+      // Switch to Home tab after successful connection
+      DefaultTabController.of(context)?.animateTo(1);
 
       socket!.listen(
         (data) {
@@ -118,11 +137,14 @@ class _TcpClientPageState extends State<TcpClientPage> {
                   final idx = _findMessageIndex(messages, tableNo);
                   if (callStatus == 1) {
                     if (idx == -1) {
-                      messages.insert(0, Message(tableNo: tableNo, receivedAt: DateTime.now()));
+                      messages.insert(
+                          0,
+                          Message(
+                              tableNo: tableNo, receivedAt: DateTime.now()));
                       _showNotification('Table Call', 'Table No: $tableNo');
                     } else {
-                      // Update timestamp if a new call comes for the same table
-                      messages[idx] = Message(tableNo: tableNo, receivedAt: DateTime.now());
+                      messages[idx] =
+                          Message(tableNo: tableNo, receivedAt: DateTime.now());
                     }
                   } else if (callStatus == 0) {
                     if (idx != -1) {
@@ -131,7 +153,8 @@ class _TcpClientPageState extends State<TcpClientPage> {
                   }
                 });
               } else {
-                _showNotification('Table Call', 'Table number or call status not found');
+                _showNotification(
+                    'Table Call', 'Table number or call status not found');
               }
             } catch (e) {
               print('❌ JSON parse error: $e');
@@ -163,59 +186,63 @@ class _TcpClientPageState extends State<TcpClientPage> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: Text("Hotel Bell App")),
-      body: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
+    return DefaultTabController(
+      length: 2,
+      initialIndex: 0,
+      child: Scaffold(
+        appBar: AppBar(
+          title: Text("Hotel Bell App"),
+          bottom: const TabBar(
+            tabs: [
+              Tab(text: 'Configurations', icon: Icon(Icons.settings)),
+              Tab(text: 'Home', icon: Icon(Icons.table_bar)),
+            ],
+          ),
+        ),
+        body: TabBarView(
+          physics: NeverScrollableScrollPhysics(),
           children: [
-            TextField(
-              controller: ipController,
-              decoration: InputDecoration(labelText: "Server IP"),
-            ),
-            TextField(
-              controller: portController,
-              decoration: InputDecoration(labelText: "Port"),
-            ),
-            ElevatedButton(onPressed: connectToServer, child: Text("Connect")),
-            SizedBox(height: 20),
-            Row(
-              children: [
-                Icon(
-                  Icons.circle,
-                  color: isConnected ? Colors.green : Colors.grey,
-                  size: 16,
-                ),
-                SizedBox(width: 8),
-                Text(isConnected ? "Connected" : "Not Connected"),
-              ],
-            ),
-            SizedBox(height: 20),
-            // Home button at bottom right
-            Expanded(child: Container()),
-            Align(
-              alignment: Alignment.bottomRight,
-              child: Padding(
-                padding: const EdgeInsets.only(bottom: 16.0, right: 8.0),
-                child: FloatingActionButton(
-                  onPressed: () async {
-                    await Navigator.of(context).push(
-                      MaterialPageRoute(builder: (_) => HomePage(messages: messages)),
-                    );
-                    setState(() {}); // This will rebuild after returning from Home
-                  },
-                  child: Icon(Icons.home),
-                  tooltip: 'Home',
-                ),
+            // Configurations Tab
+            Padding(
+              padding: const EdgeInsets.all(16.0),
+              child: Column(
+                children: [
+                  TextField(
+                    controller: ipController,
+                    decoration: InputDecoration(labelText: "Server IP"),
+                  ),
+                  TextField(
+                    controller: portController,
+                    decoration: InputDecoration(labelText: "Port"),
+                    keyboardType: TextInputType.number,
+                  ),
+                  SizedBox(height: 20),
+                  ElevatedButton(
+                    onPressed: connectToServer,
+                    child: Text("Connect"),
+                  ),
+                  SizedBox(height: 20),
+                  Row(
+                    children: [
+                      Icon(
+                        Icons.circle,
+                        color: isConnected ? Colors.green : Colors.grey,
+                        size: 16,
+                      ),
+                      SizedBox(width: 8),
+                      Text(isConnected ? "Connected" : "Not Connected"),
+                    ],
+                  ),
+                ],
               ),
             ),
+            // Home Tab
+            HomePage(messages: messages),
           ],
         ),
       ),
     );
-
   }
-
 }
 
 class HomePage extends StatefulWidget {
@@ -276,4 +303,3 @@ class _HomePageState extends State<HomePage> {
     );
   }
 }
-
